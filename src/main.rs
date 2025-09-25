@@ -13,7 +13,7 @@ fn main() {
             DefaultPlugins
                 .set(WindowPlugin {
                     primary_window: Some(Window {
-                        title: "Overlord".to_string(),
+                        title: "Astro Bloom".to_string(),
                         present_mode: bevy::window::PresentMode::AutoVsync,
                         ..default()
                     }),
