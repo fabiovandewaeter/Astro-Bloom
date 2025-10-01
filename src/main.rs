@@ -43,12 +43,7 @@ fn main() {
         .run();
 }
 
-fn setup_system(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
-    asset_server: Res<AssetServer>,
-) {
+fn setup_system(mut commands: Commands, asset_server: Res<AssetServer>) {
     let mut orthographic_projection = OrthographicProjection::default_2d();
     orthographic_projection.scale *= 0.8;
     let projection = Projection::Orthographic(orthographic_projection);
