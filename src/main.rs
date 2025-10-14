@@ -4,6 +4,7 @@ use astro_bloom::{
         FixedBackground, UpsCounter, display_fps_ups_system, handle_camera_inputs_system,
         update_fixed_background,
     },
+    map::{self, MapPlugin},
 };
 use bevy::{diagnostic::FrameTimeDiagnosticsPlugin, prelude::*};
 
@@ -22,6 +23,7 @@ fn main() {
                 .set(ImagePlugin::default_nearest()),
         )
         .add_plugins(FrameTimeDiagnosticsPlugin::default())
+        .add_plugins(MapPlugin)
         .insert_resource(Time::<Fixed>::from_hz(UPS_TARGET))
         .insert_resource(TimeState::default())
         .insert_resource(UpsCounter {
@@ -34,7 +36,7 @@ fn main() {
             Update,
             (
                 handle_camera_inputs_system,
-                update_fixed_background,
+                update_fixed_background.after(handle_camera_inputs_system),
                 display_fps_ups_system,
                 control_time_system,
             ),

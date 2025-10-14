@@ -1,6 +1,7 @@
 use bevy::math::UVec2;
 
 pub mod camera;
+pub mod map;
 
 pub const UPS_TARGET: f64 = 30.0;
 pub const ZOOM_IN_SPEED: f32 = 0.25 / 400000000.0;
