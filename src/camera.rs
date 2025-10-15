@@ -1,7 +1,7 @@
 use crate::{CAMERA_SPEED, TILE_SIZE, ZOOM_IN_SPEED, ZOOM_OUT_SPEED};
 use bevy::{
     diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin},
-    input::mouse::{MouseScrollUnit, MouseWheel},
+    input::mouse::{MouseMotion, MouseScrollUnit, MouseWheel},
     prelude::*,
 };
 
@@ -54,15 +54,48 @@ pub fn update_fixed_background(
     }
 }
 
+#[derive(Resource, Default)]
+pub struct CameraDragState {
+    pub is_dragging: bool,
+}
+
 pub fn handle_camera_inputs_system(
     mut camera_query: Query<(&mut Transform, &mut Projection), With<Camera>>,
     input: Res<ButtonInput<KeyCode>>,
+    mouse_button: Res<ButtonInput<MouseButton>>,
+    mut mouse_motion: EventReader<MouseMotion>,
+    mut drag_state: ResMut<CameraDragState>,
     mut input_mouse_wheel: EventReader<MouseWheel>,
     time: Res<Time>,
 ) {
     let Ok((mut camera_transform, mut projection)) = camera_query.single_mut() else {
         return;
     };
+
+    // Gestion du clic souris pour le drag
+    if mouse_button.just_pressed(MouseButton::Left) {
+        drag_state.is_dragging = true;
+    }
+    if mouse_button.just_released(MouseButton::Left) {
+        drag_state.is_dragging = false;
+    }
+
+    // Récupérer le niveau de zoom actuel
+    let zoom_scale = if let Projection::Orthographic(projection2d) = &*projection {
+        projection2d.scale
+    } else {
+        1.0 // Valeur par défaut si ce n'est pas une projection orthographique
+    };
+
+    // Déplacement avec la souris (drag)
+    if drag_state.is_dragging {
+        for event in mouse_motion.read() {
+            // Inverser le delta pour un mouvement naturel
+            // (bouger la souris vers la droite déplace la caméra vers la gauche)
+            camera_transform.translation.x -= event.delta.x * zoom_scale;
+            camera_transform.translation.y += event.delta.y * zoom_scale;
+        }
+    }
 
     // free Camera movement controls
     let mut direction = Vec3::ZERO;
@@ -78,13 +111,6 @@ pub fn handle_camera_inputs_system(
     if input.pressed(KeyCode::KeyD) {
         direction.x += 1.0;
     }
-
-    // Récupérer le niveau de zoom actuel
-    let zoom_scale = if let Projection::Orthographic(projection2d) = &*projection {
-        projection2d.scale
-    } else {
-        1.0 // Valeur par défaut si ce n'est pas une projection orthographique
-    };
 
     // normalizes to have constant diagonal speed
     if direction != Vec3::ZERO {

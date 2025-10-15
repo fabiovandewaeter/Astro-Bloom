@@ -1,10 +1,10 @@
 use astro_bloom::{
     UPS_TARGET,
     camera::{
-        FixedBackground, UpsCounter, display_fps_ups_system, handle_camera_inputs_system,
-        update_fixed_background,
+        CameraDragState, FixedBackground, UpsCounter, display_fps_ups_system,
+        handle_camera_inputs_system, update_fixed_background,
     },
-    map::{self, MapPlugin},
+    map::MapPlugin,
 };
 use bevy::{diagnostic::FrameTimeDiagnosticsPlugin, prelude::*};
 
@@ -31,6 +31,7 @@ fn main() {
             last_second: 0.0,
             ups: 0,
         })
+        .insert_resource(CameraDragState::default())
         .add_systems(Startup, (setup_system,).chain())
         .add_systems(
             Update,

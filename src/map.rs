@@ -142,7 +142,7 @@ fn node_interaction_system(
     mouse_buttons: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window>,
     camera_query: Query<(&Camera, &GlobalTransform)>,
-    node_query: Query<(Entity, &GlobalTransform), With<StarNode>>,
+    node_query: Query<(Entity, &GlobalTransform, &StarNode)>,
     selected_query: Query<Entity, With<SelectedNode>>,
 ) {
     if mouse_buttons.just_pressed(MouseButton::Left) {
@@ -165,19 +165,23 @@ fn node_interaction_system(
             }
 
             // Trouve le nœud le plus proche du clic, s'il est assez proche
-            let mut clicked_node = None;
-            for (node_entity, node_transform) in node_query.iter() {
+            let mut clicked_entity = None;
+            let mut clicked_star_node = None;
+            for (node_entity, node_transform, star_node) in node_query.iter() {
                 let distance = world_pos.distance(node_transform.translation().truncate());
                 if distance < NODE_RADIUS {
-                    clicked_node = Some(node_entity);
+                    clicked_entity = Some(node_entity);
+                    clicked_star_node = Some(star_node);
                     break;
                 }
             }
 
             // Si un nœud a été cliqué, on le marque comme sélectionné
-            if let Some(entity) = clicked_node {
-                println!("Node clicked!");
-                commands.entity(entity).insert(SelectedNode);
+            if let Some(entity) = clicked_entity {
+                if let Some(star_node) = clicked_star_node {
+                    println!("Node clicked!: {:?}", star_node.name);
+                    commands.entity(entity).insert(SelectedNode);
+                }
             }
         }
     }
