@@ -1,4 +1,4 @@
-use bevy::prelude::*;
+use bevy::{input::mouse::MouseMotion, prelude::*};
 
 const NODE_RADIUS: f32 = 10.0;
 const NODE_SELECTED_COLOR: Color = Color::srgb(1.0, 1.0, 0.0); // YELLOW
@@ -10,6 +10,7 @@ pub struct MapPlugin;
 impl Plugin for MapPlugin {
     fn build(&self, app: &mut bevy::app::App) {
         app.init_resource::<GalaxyGraph>()
+            .init_resource::<MouseDragState>()
             .add_systems(PostStartup, setup)
             .add_systems(
                 Update,
@@ -171,8 +172,16 @@ fn draw_links_system(
     }
 }
 
+#[derive(Resource, Default)]
+struct MouseDragState {
+    is_dragging: bool,
+    start_pos: Option<Vec2>,
+}
+
 fn node_interaction_system(
     mut commands: Commands,
+    mut mouse_drag: ResMut<MouseDragState>,
+    mut mouse_motion_events: EventReader<MouseMotion>,
     mouse_buttons: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window>,
     camera_query: Query<(&Camera, &GlobalTransform)>,
@@ -180,7 +189,27 @@ fn node_interaction_system(
     selected_query: Query<Entity, With<SelectedNode>>,
     menu_query: Query<Entity, With<NodeInfoMenu>>,
 ) {
+    // Détecte le début du clic gauche
     if mouse_buttons.just_pressed(MouseButton::Left) {
+        let Ok(window) = windows.single() else {
+            return;
+        };
+        mouse_drag.start_pos = window.cursor_position();
+        mouse_drag.is_dragging = false;
+    }
+
+    // Si la souris bouge pendant le clic, on considère que c'est un drag
+    if mouse_buttons.pressed(MouseButton::Left) {
+        for ev in mouse_motion_events.read() {
+            if ev.delta.length() > 0.2 {
+                mouse_drag.is_dragging = true;
+                break;
+            }
+        }
+    }
+
+    // Quand le clic gauche est relâché
+    if mouse_buttons.just_released(MouseButton::Left) {
         let Ok(window) = windows.single() else {
             return;
         };
@@ -193,18 +222,7 @@ fn node_interaction_system(
             .and_then(|cursor| camera.viewport_to_world(camera_transform, cursor).ok())
             .map(|ray| ray.origin.truncate())
         {
-            // Désélectionne le nœud précédent
-            for entity in selected_query.iter() {
-                commands.entity(entity).remove::<SelectedNode>();
-            }
-
-            // Supprime le menu précédent
-            for entity in menu_query.iter() {
-                commands.entity(entity).despawn_related::<Children>();
-                commands.entity(entity).despawn();
-            }
-
-            // Trouve le nœud cliqué
+            // Vérifie si un nœud a été cliqué
             let mut clicked_entity = None;
             let mut clicked_star_node = None;
             for (node_entity, node_transform, star_node) in node_query.iter() {
@@ -216,17 +234,32 @@ fn node_interaction_system(
                 }
             }
 
-            // Si un nœud a été cliqué, crée le menu
-            if let Some(entity) = clicked_entity {
-                if let Some(star_node) = clicked_star_node {
-                    println!("Node clicked!: {:?}", star_node.name);
-                    commands.entity(entity).insert(SelectedNode);
+            // Si c’est un clic sur un nœud → sélectionne-le
+            if let (Some(entity), Some(star_node)) = (clicked_entity, clicked_star_node) {
+                for entity_selected in selected_query.iter() {
+                    commands.entity(entity_selected).remove::<SelectedNode>();
+                }
+                for entity_menu in menu_query.iter() {
+                    commands.entity(entity_menu).despawn_related::<Children>();
+                }
 
-                    // Crée le menu UI
-                    spawn_info_menu(&mut commands, star_node);
+                commands.entity(entity).insert(SelectedNode);
+                spawn_info_menu(&mut commands, star_node);
+            }
+            // Si c’est un clic "vide" (pas de nœud) ET pas un drag → désélectionne
+            else if !mouse_drag.is_dragging {
+                for entity_selected in selected_query.iter() {
+                    commands.entity(entity_selected).remove::<SelectedNode>();
+                }
+                for entity_menu in menu_query.iter() {
+                    commands.entity(entity_menu).despawn_related::<Children>();
                 }
             }
         }
+
+        // Reset de l'état de drag
+        mouse_drag.is_dragging = false;
+        mouse_drag.start_pos = None;
     }
 }
 
