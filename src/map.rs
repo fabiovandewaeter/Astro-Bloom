@@ -17,6 +17,7 @@ impl Plugin for MapPlugin {
                     draw_links_system,
                     node_interaction_system,
                     update_visuals_system,
+                    close_menu_system,
                 ),
             );
     }
@@ -29,11 +30,19 @@ impl Plugin for MapPlugin {
 struct StarNode {
     name: String,
     base_color: Color,
+    // Ajoute des infos supplémentaires
+    star_type: String,
+    distance: f32, // en années-lumière
+    population: u64,
 }
 
 /// Composant marqueur pour le nœud actuellement sélectionné.
 #[derive(Component)]
 struct SelectedNode;
+
+/// Composant marqueur pour le menu UI
+#[derive(Component)]
+struct NodeInfoMenu;
 
 /// Ressource pour stocker les liens du graphe.
 /// Un lien est une paire d'entités (Entity) qui ont un composant StarNode.
@@ -48,30 +57,53 @@ fn setup(
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut galaxy_graph: ResMut<GalaxyGraph>,
 ) {
-    // Création des nœuds (étoiles)
-    let node_positions = vec![
-        (Vec2::new(-200.0, 150.0), "Sol", Color::srgb(1.0, 0.27, 0.0)), // ORANGE_RED
-        (Vec2::new(50.0, 250.0), "Sirius", Color::srgb(0.0, 1.0, 1.0)), // CYAN
+    // Création des nœuds (étoiles) avec plus d'infos
+    let node_data = vec![
+        (
+            Vec2::new(-200.0, 150.0),
+            "Sol",
+            Color::srgb(1.0, 0.27, 0.0),
+            "Naine jaune",
+            0.0,
+            8_000_000_000,
+        ),
+        (
+            Vec2::new(50.0, 250.0),
+            "Sirius",
+            Color::srgb(0.0, 1.0, 1.0),
+            "Étoile double",
+            8.6,
+            3_500_000,
+        ),
         (
             Vec2::new(300.0, 100.0),
             "Alpha Centauri",
             Color::srgb(1.0, 1.0, 1.0),
-        ), // WHITE
+            "Système triple",
+            4.37,
+            12_000_000,
+        ),
         (
             Vec2::new(100.0, -200.0),
             "Vega",
             Color::srgb(0.1, 0.1, 0.44),
-        ), // MIDNIGHT_BLUE
+            "Naine bleue",
+            25.0,
+            900_000,
+        ),
         (
             Vec2::new(-250.0, -150.0),
             "Proxima",
             Color::srgb(1.0, 0.0, 0.0),
-        ), // RED
+            "Naine rouge",
+            4.24,
+            250_000,
+        ),
     ];
 
     let mut node_entities = Vec::new();
 
-    for (pos, name, color) in node_positions {
+    for (pos, name, color, star_type, distance, population) in node_data {
         let entity = commands
             .spawn((
                 Mesh2d(meshes.add(Circle::new(NODE_RADIUS))),
@@ -80,6 +112,9 @@ fn setup(
                 StarNode {
                     name: name.to_string(),
                     base_color: color,
+                    star_type: star_type.to_string(),
+                    distance,
+                    population,
                 },
             ))
             .id();
@@ -123,7 +158,6 @@ fn draw_links_system(
             let start_pos = start_transform.translation.truncate();
             let end_pos = end_transform.translation.truncate();
 
-            // Change la couleur si un des nœuds connectés est sélectionné
             let is_selected =
                 selected_nodes.contains(&start_entity) || selected_nodes.contains(&end_entity);
             let color = if is_selected {
@@ -144,6 +178,7 @@ fn node_interaction_system(
     camera_query: Query<(&Camera, &GlobalTransform)>,
     node_query: Query<(Entity, &GlobalTransform, &StarNode)>,
     selected_query: Query<Entity, With<SelectedNode>>,
+    menu_query: Query<Entity, With<NodeInfoMenu>>,
 ) {
     if mouse_buttons.just_pressed(MouseButton::Left) {
         let Ok(window) = windows.single() else {
@@ -153,18 +188,23 @@ fn node_interaction_system(
             return;
         };
 
-        // Convertit la position du curseur en coordonnées du monde
         if let Some(world_pos) = window
             .cursor_position()
-            .and_then(|cursor| Some(camera.viewport_to_world(camera_transform, cursor)))
-            .map(|ray| ray.unwrap().origin.truncate())
+            .and_then(|cursor| camera.viewport_to_world(camera_transform, cursor).ok())
+            .map(|ray| ray.origin.truncate())
         {
-            // D'abord, on désélectionne le nœud précédent
+            // Désélectionne le nœud précédent
             for entity in selected_query.iter() {
                 commands.entity(entity).remove::<SelectedNode>();
             }
 
-            // Trouve le nœud le plus proche du clic, s'il est assez proche
+            // Supprime le menu précédent
+            for entity in menu_query.iter() {
+                commands.entity(entity).despawn_related::<Children>();
+                commands.entity(entity).despawn();
+            }
+
+            // Trouve le nœud cliqué
             let mut clicked_entity = None;
             let mut clicked_star_node = None;
             for (node_entity, node_transform, star_node) in node_query.iter() {
@@ -176,15 +216,125 @@ fn node_interaction_system(
                 }
             }
 
-            // Si un nœud a été cliqué, on le marque comme sélectionné
+            // Si un nœud a été cliqué, crée le menu
             if let Some(entity) = clicked_entity {
                 if let Some(star_node) = clicked_star_node {
                     println!("Node clicked!: {:?}", star_node.name);
                     commands.entity(entity).insert(SelectedNode);
+
+                    // Crée le menu UI
+                    spawn_info_menu(&mut commands, star_node);
                 }
             }
         }
     }
+}
+
+fn spawn_info_menu(commands: &mut Commands, star_node: &StarNode) {
+    commands
+        .spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                right: Val::Px(20.0),
+                top: Val::Px(20.0),
+                padding: UiRect::all(Val::Px(15.0)),
+                flex_direction: FlexDirection::Column,
+                row_gap: Val::Px(8.0),
+                ..default()
+            },
+            BackgroundColor(Color::srgba(0.1, 0.1, 0.15, 0.95)),
+            BorderColor::all(Color::srgb(0.8, 0.8, 0.2)),
+            BorderRadius::all(Val::Px(8.0)),
+            NodeInfoMenu,
+        ))
+        .with_children(|parent| {
+            // Titre
+            parent.spawn((
+                Text::new(format!("★ {}", star_node.name)),
+                TextFont {
+                    font_size: 24.0,
+                    ..default()
+                },
+                TextColor(Color::srgb(1.0, 1.0, 0.3)),
+            ));
+
+            // Type d'étoile
+            parent.spawn((
+                Text::new(format!("Type: {}", star_node.star_type)),
+                TextFont {
+                    font_size: 16.0,
+                    ..default()
+                },
+                TextColor(Color::srgb(0.9, 0.9, 0.9)),
+            ));
+
+            // Distance
+            if star_node.distance > 0.0 {
+                parent.spawn((
+                    Text::new(format!("Distance: {:.2} al", star_node.distance)),
+                    TextFont {
+                        font_size: 16.0,
+                        ..default()
+                    },
+                    TextColor(Color::srgb(0.9, 0.9, 0.9)),
+                ));
+            }
+
+            // Population
+            parent.spawn((
+                Text::new(format!(
+                    "Population: {} hab.",
+                    format_number(star_node.population)
+                )),
+                TextFont {
+                    font_size: 16.0,
+                    ..default()
+                },
+                TextColor(Color::srgb(0.9, 0.9, 0.9)),
+            ));
+
+            // Bouton de fermeture
+            parent.spawn((
+                Text::new("\n[Clic droit pour fermer]"),
+                TextFont {
+                    font_size: 12.0,
+                    ..default()
+                },
+                TextColor(Color::srgba(0.7, 0.7, 0.7, 0.8)),
+            ));
+        });
+}
+
+fn close_menu_system(
+    mut commands: Commands,
+    mouse_buttons: Res<ButtonInput<MouseButton>>,
+    menu_query: Query<Entity, With<NodeInfoMenu>>,
+    selected_query: Query<Entity, With<SelectedNode>>,
+) {
+    if mouse_buttons.just_pressed(MouseButton::Right) {
+        // Ferme le menu
+        for entity in menu_query.iter() {
+            commands.entity(entity).despawn_related::<Children>();
+            commands.entity(entity).despawn();
+        }
+
+        // Désélectionne le nœud
+        for entity in selected_query.iter() {
+            commands.entity(entity).remove::<SelectedNode>();
+        }
+    }
+}
+
+fn format_number(n: u64) -> String {
+    let s = n.to_string();
+    let mut result = String::new();
+    for (i, c) in s.chars().rev().enumerate() {
+        if i > 0 && i % 3 == 0 {
+            result.push(' ');
+        }
+        result.push(c);
+    }
+    result.chars().rev().collect()
 }
 
 /// Met à jour la couleur des nœuds en fonction de leur état (sélectionné ou non).
